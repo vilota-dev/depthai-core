@@ -435,7 +435,7 @@ std::vector<std::vector<float>> CalibrationHandler::getImuToCameraExtrinsics(Cam
         return transformationMatrix;
     } else {
         std::vector<std::vector<float>> localTransformationMatrix = getCameraExtrinsics(eepromData.imuExtrinsics.toCameraSocket, cameraId, useSpecTranslation);
-        return matMul(transformationMatrix, localTransformationMatrix);
+        return matMul(localTransformationMatrix, transformationMatrix);
     }
 }
 
@@ -523,7 +523,7 @@ std::vector<std::vector<float>> CalibrationHandler::computeExtrinsicMatrix(Camer
         }
         std::vector<float> homogeneous_vector = {0, 0, 0, 1};
         currTransformationMatrix.push_back(homogeneous_vector);
-        return matMul(currTransformationMatrix, futureTransformationMatrix);
+        return matMul(futureTransformationMatrix, currTransformationMatrix);
     }
 }
 
