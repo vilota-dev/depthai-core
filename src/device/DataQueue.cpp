@@ -234,7 +234,7 @@ DataInputQueue::DataInputQueue(
                                   name,
                                   std::chrono::duration_cast<std::chrono::microseconds>(t2Parse - t1Parse),
                                   data->data.size(),
-                                  type,
+                                  static_cast<std::int32_t>(type),
                                   spdlog::to_hex(metadata));
                 }
 
