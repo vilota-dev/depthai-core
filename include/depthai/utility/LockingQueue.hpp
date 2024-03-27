@@ -18,12 +18,23 @@ class LockingQueue {
         // Lock first
         std::unique_lock<std::mutex> lock(guard);
         maxSize = sz;
+
+        // hm: we should reduce the queue size to maxSize
+        while(queue.size() > maxSize) {
+            queue.pop();
+        }
+
+        // hm: we need to unblock the push() function
+        signalPop.notify_all();
     }
 
     void setBlocking(bool bl) {
         // Lock first
         std::unique_lock<std::mutex> lock(guard);
         blocking = bl;
+
+        // hm: we need to unblock the push() function
+        signalPop.notify_all();
     }
 
     unsigned getMaxSize() const {
@@ -106,6 +117,10 @@ class LockingQueue {
     bool push(T const& data) {
         {
             std::unique_lock<std::mutex> lock(guard);
+
+            signalPop.wait(lock, [this]() { return queue.size() < maxSize || maxSize == 0 || !blocking || destructed; });
+            if(destructed) return false;
+
             if(maxSize == 0) {
                 // necessary if maxSize was changed
                 while(!queue.empty()) {
@@ -113,16 +128,14 @@ class LockingQueue {
                 }
                 return true;
             }
+
             if(!blocking) {
                 // if non blocking, remove as many oldest elements as necessary, so next one will fit
                 // necessary if maxSize was changed
                 while(queue.size() >= maxSize) {
                     queue.pop();
                 }
-            } else {
-                signalPop.wait(lock, [this]() { return queue.size() < maxSize || destructed; });
-                if(destructed) return false;
-            }
+            }         
 
             queue.push(data);
         }
@@ -134,6 +147,12 @@ class LockingQueue {
     bool tryWaitAndPush(T const& data, std::chrono::duration<Rep, Period> timeout) {
         {
             std::unique_lock<std::mutex> lock(guard);
+
+            // First checks predicate, then waits
+            bool pred = signalPop.wait_for(lock, timeout, [this]() { return queue.size() < maxSize || maxSize == 0 || !blocking || destructed; });
+            if(!pred) return false;
+            if(destructed) return false;
+
             if(maxSize == 0) {
                 // necessary if maxSize was changed
                 while(!queue.empty()) {
@@ -141,17 +160,13 @@ class LockingQueue {
                 }
                 return true;
             }
+
             if(!blocking) {
                 // if non blocking, remove as many oldest elements as necessary, so next one will fit
                 // necessary if maxSize was changed
                 while(queue.size() >= maxSize) {
                     queue.pop();
                 }
-            } else {
-                // First checks predicate, then waits
-                bool pred = signalPop.wait_for(lock, timeout, [this]() { return queue.size() < maxSize || destructed; });
-                if(!pred) return false;
-                if(destructed) return false;
             }
 
             queue.push(data);
