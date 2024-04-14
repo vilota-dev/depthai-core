@@ -546,7 +546,7 @@ class CalibrationHandler {
     // bool isCameraArrayConnected;
     dai::EepromData eepromData;
     std::vector<std::vector<float>> computeExtrinsicMatrix(CameraBoardSocket srcCamera, CameraBoardSocket dstCamera, bool useSpecTranslation = false) const;
-    bool checkExtrinsicsLink(CameraBoardSocket srcCamera, CameraBoardSocket dstCamera) const;
+    std::tuple<bool,CameraBoardSocket> checkExtrinsicsLink(CameraBoardSocket srcCamera, CameraBoardSocket dstCamera) const;
     bool checkSrcLinks(CameraBoardSocket headSocket) const;
 };
 
