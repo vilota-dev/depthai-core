@@ -374,13 +374,33 @@ std::vector<std::vector<float>> CalibrationHandler::getCameraExtrinsics(CameraBo
         throw std::runtime_error("There is no Camera data available corresponding to the the requested destination cameraId");
     }
 
-    std::vector<std::vector<float>> extrinsics;
-    if(checkExtrinsicsLink(srcCamera, dstCamera)) {
-        return computeExtrinsicMatrix(srcCamera, dstCamera, useSpecTranslation);
-    } else if(checkExtrinsicsLink(dstCamera, srcCamera)) {
-        extrinsics = computeExtrinsicMatrix(dstCamera, srcCamera, useSpecTranslation);
-        invertSe3Matrix4x4InPlace(extrinsics);
-        return extrinsics;
+    std::vector<std::vector<float>> forwardMatrix, backwardMatrix, extrinsics;
+    CameraBoardSocket commonCamera;
+    bool success;
+    std::tie(success, commonCamera) = checkExtrinsicsLink(srcCamera, dstCamera);
+    std::cout << "success " << success << std::endl;
+    std::cout << "srcCamera " << static_cast<int32_t>(srcCamera) << std::endl;
+    std::cout << "dstCamera " << static_cast<int32_t>(dstCamera) << std::endl;
+    std::cout << "commonCamera " << static_cast<int32_t>(commonCamera) << std::endl;
+
+    if(success) {
+        if (srcCamera != commonCamera)
+            forwardMatrix = computeExtrinsicMatrix(srcCamera, commonCamera, useSpecTranslation);
+
+        if (dstCamera != commonCamera) {
+            backwardMatrix = computeExtrinsicMatrix(dstCamera, commonCamera, useSpecTranslation);
+            invertSe3Matrix4x4InPlace(backwardMatrix);
+        }
+
+        if (forwardMatrix.size() && backwardMatrix.size())
+            extrinsics = matMul(backwardMatrix, forwardMatrix);
+        else if (forwardMatrix.size())
+            extrinsics = forwardMatrix;
+        else if (backwardMatrix.size())
+            extrinsics = backwardMatrix;
+        else
+            throw std::runtime_error("impossible to be here: getCameraExtrinsics");
+
     } else {
         throw std::runtime_error("Extrinsic connection between the requested cameraId's doesn't exist. Please recalibrate or modify your calibration data");
     }
@@ -529,17 +549,36 @@ std::vector<std::vector<float>> CalibrationHandler::computeExtrinsicMatrix(Camer
     }
 }
 
-bool CalibrationHandler::checkExtrinsicsLink(CameraBoardSocket srcCamera, CameraBoardSocket dstCamera) const {
+std::tuple<bool, CameraBoardSocket> CalibrationHandler::checkExtrinsicsLink(CameraBoardSocket srcCamera, CameraBoardSocket dstCamera) const {
     bool isConnectionFound = false;
+    CameraBoardSocket commonCamera = dstCamera;
     CameraBoardSocket currentCameraId = srcCamera;
-    while(currentCameraId != CameraBoardSocket::AUTO) {
+    while(eepromData.cameraData.at(currentCameraId).extrinsics.toCameraSocket != CameraBoardSocket::AUTO) {
         currentCameraId = eepromData.cameraData.at(currentCameraId).extrinsics.toCameraSocket;
         if(currentCameraId == dstCamera) {
             isConnectionFound = true;
             break;
         }
     }
-    return isConnectionFound;
+
+    // second chance of using the common node
+    if (!isConnectionFound) {
+        commonCamera = currentCameraId;
+        currentCameraId = dstCamera;
+        while(eepromData.cameraData.at(currentCameraId).extrinsics.toCameraSocket != CameraBoardSocket::AUTO) {
+            currentCameraId = eepromData.cameraData.at(currentCameraId).extrinsics.toCameraSocket;
+            if(currentCameraId == commonCamera) {
+                isConnectionFound = true;
+                break;
+            }
+        }
+    }
+
+    std::cout << "srcCamera " << static_cast<int32_t>(srcCamera) << std::endl;
+    std::cout << "dstCamera " << static_cast<int32_t>(dstCamera) << std::endl;
+    std::cout << "commonCamera " << static_cast<int32_t>(commonCamera) << std::endl;
+
+    return std::tie(isConnectionFound, commonCamera);
 }
 
 void CalibrationHandler::setBoardInfo(std::string boardName, std::string boardRev) {
