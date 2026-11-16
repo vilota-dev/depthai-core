@@ -534,23 +534,23 @@ std::vector<std::vector<float>> CalibrationHandler::getCameraExtrinsics(CameraBo
         throw std::runtime_error("There is no Camera data available corresponding to the requested destination cameraId");
     }
 
-    std::vector<std::vector<float>> extrinsics;
-    CameraBoardSocket originCamera1;
-    CameraBoardSocket originCamera2;
-
-    // Get matrix from src to -1 camera and dst to -1 camera and set originCamera1 and originCamera2
-    std::vector<std::vector<float>> srcOriginMatrix = getExtrinsicsToOrigin(srcCamera, useSpecTranslation, originCamera1);
-    std::vector<std::vector<float>> dstOriginMatrix = getExtrinsicsToOrigin(dstCamera, useSpecTranslation, originCamera2);
-
-    if(originCamera1 != originCamera2) {
+    const auto commonCamera = findCommonExtrinsicsCamera(srcCamera, dstCamera);
+    if(!commonCamera) {
         throw std::runtime_error("Missing extrinsic link from source camera to to destination camera.");
     }
 
-    // Invert the matrix dstOriginMatrix
-    invertSe3Matrix4x4InPlace(dstOriginMatrix);
+    std::vector<std::vector<float>> srcCommonMatrix = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}};
+    if(srcCamera != *commonCamera) {
+        srcCommonMatrix = computeExtrinsicMatrix(srcCamera, *commonCamera, useSpecTranslation);
+    }
 
-    // Get the matrix from src to dst camera
-    extrinsics = matMul(dstOriginMatrix, srcOriginMatrix);
+    std::vector<std::vector<float>> dstCommonMatrix = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}};
+    if(dstCamera != *commonCamera) {
+        dstCommonMatrix = computeExtrinsicMatrix(dstCamera, *commonCamera, useSpecTranslation);
+        invertSe3Matrix4x4InPlace(dstCommonMatrix);
+    }
+
+    auto extrinsics = matMul(dstCommonMatrix, srcCommonMatrix);
     scaleTranslationInPlace(extrinsics, unit);
     return extrinsics;
 }
@@ -947,24 +947,41 @@ std::vector<std::vector<float>> CalibrationHandler::computeExtrinsicMatrix(Camer
     }
 }
 
-bool CalibrationHandler::checkExtrinsicsLink(CameraBoardSocket srcCamera, CameraBoardSocket dstCamera) const {
+std::optional<CameraBoardSocket> CalibrationHandler::findCommonExtrinsicsCamera(CameraBoardSocket srcCamera, CameraBoardSocket dstCamera) const {
     if(!hasCameraCalibration(srcCamera) || !hasCameraCalibration(dstCamera)) {
-        return false;
+        return std::nullopt;
     }
 
-    bool isConnectionFound = false;
+    std::unordered_set<CameraBoardSocket> srcPath;
     CameraBoardSocket currentCameraId = srcCamera;
-    while(currentCameraId != CameraBoardSocket::AUTO) {
-        if(eepromData.cameraData.find(currentCameraId) == eepromData.cameraData.end()) {
-            return false;
-        }
-        currentCameraId = eepromData.cameraData.at(currentCameraId).extrinsics.toCameraSocket;
+
+    while(currentCameraId != CameraBoardSocket::AUTO && srcPath.insert(currentCameraId).second) {
         if(currentCameraId == dstCamera) {
-            isConnectionFound = true;
-            break;
+            return dstCamera;
         }
+
+        const auto currentCamera = eepromData.cameraData.find(currentCameraId);
+        if(currentCamera == eepromData.cameraData.end()) break;
+        currentCameraId = currentCamera->second.extrinsics.toCameraSocket;
     }
-    return isConnectionFound;
+
+    std::unordered_set<CameraBoardSocket> dstPath;
+    currentCameraId = dstCamera;
+    while(currentCameraId != CameraBoardSocket::AUTO && dstPath.insert(currentCameraId).second) {
+        if(srcPath.count(currentCameraId) != 0) {
+            return currentCameraId;
+        }
+
+        const auto currentCamera = eepromData.cameraData.find(currentCameraId);
+        if(currentCamera == eepromData.cameraData.end()) break;
+        currentCameraId = currentCamera->second.extrinsics.toCameraSocket;
+    }
+
+    return std::nullopt;
+}
+
+bool CalibrationHandler::checkExtrinsicsLink(CameraBoardSocket srcCamera, CameraBoardSocket dstCamera) const {
+    return findCommonExtrinsicsCamera(srcCamera, dstCamera).has_value();
 }
 
 void CalibrationHandler::setBoardInfo(const std::string& boardName, const std::string& boardRev) {

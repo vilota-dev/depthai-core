@@ -774,6 +774,7 @@ class CalibrationHandler {
     // bool isCameraArrayConnected;
     dai::EepromData eepromData;
     std::vector<std::vector<float>> computeExtrinsicMatrix(CameraBoardSocket srcCamera, CameraBoardSocket dstCamera, bool useSpecTranslation = false) const;
+    std::optional<CameraBoardSocket> findCommonExtrinsicsCamera(CameraBoardSocket srcCamera, CameraBoardSocket dstCamera) const;
     bool checkExtrinsicsLink(CameraBoardSocket srcCamera, CameraBoardSocket dstCamera) const;
     bool checkSrcLinks(CameraBoardSocket headSocket) const;
     enum class ExtrinsicGraphError { None, CycleDetected, DanglingReference, DisconnectedGraph };

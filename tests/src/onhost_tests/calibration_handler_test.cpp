@@ -905,6 +905,30 @@ TEST_CASE("Cyclic connection throws", "[getCameraExtrinsics]") {
                         Catch::Matchers::ContainsSubstring("Extrinsic cycle detected"));
 }
 
+TEST_CASE("Stored cyclic extrinsics resolve through a common camera", "[getCameraExtrinsics]") {
+    dai::EepromData data;
+    data.version = 7;
+
+    const auto identity = std::vector<std::vector<float>>{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    const auto addCamera = [&](CameraBoardSocket camera, CameraBoardSocket linkedCamera, const Point3f& translation) {
+        auto& extrinsics = data.cameraData[camera].extrinsics;
+        extrinsics.rotationMatrix = identity;
+        extrinsics.translation = translation;
+        extrinsics.toCameraSocket = linkedCamera;
+    };
+
+    addCamera(CameraBoardSocket::CAM_A, CameraBoardSocket::CAM_B, {1, 0, 0});
+    addCamera(CameraBoardSocket::CAM_B, CameraBoardSocket::CAM_A, {-1, 0, 0});
+    addCamera(CameraBoardSocket::CAM_C, CameraBoardSocket::CAM_B, {0, 2, 0});
+    const dai::CalibrationHandler handler(data);
+
+    const auto extrinsics = handler.getCameraExtrinsics(CameraBoardSocket::CAM_A, CameraBoardSocket::CAM_C);
+
+    REQUIRE(extrinsics[0][3] == Catch::Approx(1));
+    REQUIRE(extrinsics[1][3] == Catch::Approx(-2));
+    REQUIRE(extrinsics[2][3] == Catch::Approx(0));
+}
+
 TEST_CASE("Dangling extrinsic reference throws", "[setCameraExtrinsics]") {
     dai::EepromData data;
 
